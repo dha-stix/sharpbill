@@ -1,0 +1,39 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Each account's business logo: users/{uid}/logo.png
+    match /users/{uid}/logo.png {
+      // Only the signed-in owner can read it through the SDK.
+      // (Invoices and emails use the file's download URL, which carries its own access token.)
+      allow read: if request.auth != null && request.auth.uid == uid;
+
+      // Only the owner can upload or replace it: images only, 2 MB max.
+      allow create, update: if request.auth != null
+                            && request.auth.uid == uid
+                            && request.resource.size < 2 * 1024 * 1024
+                            && request.resource.contentType.matches('image/.*');
+
+      // Only the owner can remove it.
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // The PDF of each emailed invoice: users/{uid}/invoices/{invoiceId}.pdf
+    // The "Download invoice" button in the email uses the file's download URL, which carries its own access token.
+    match /users/{uid}/invoices/{file} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+
+      // Only the owner can upload or replace it: PDFs only, 5 MB max.
+      allow create, update: if request.auth != null
+                            && request.auth.uid == uid
+                            && file.matches('.*\\.pdf')
+                            && request.resource.size < 5 * 1024 * 1024
+                            && request.resource.contentType == 'application/pdf';
+    }
+
+    // Everything else is closed.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
