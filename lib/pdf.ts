@@ -5,8 +5,8 @@ const A4_HEIGHT_MM = 297;
 
 /**
  * "print" — crisp file for downloading/printing.
- * "email" — lighter file for EmailJS attachments (plan limits are per request:
- *           Personal 500 KB, Professional 2 MB), still sharp on screen.
+ * "email" — lighter file for email attachments (smaller uploads and faster sends),
+ *           still sharp on screen.
  */
 const PRESETS = {
   print: { pixelRatio: 2, quality: 0.92 },
@@ -17,9 +17,9 @@ export type PdfPreset = keyof typeof PRESETS;
 
 export interface InvoicePdf {
   blob: Blob;
-  /** Standard `data:application/pdf;base64,…` URL (EmailJS variable attachment format). */
+  /** Standard `data:application/pdf;base64,…` URL; its base64 part is sent as the email attachment. */
   dataUrl: string;
-  /** Size of the encoded attachment as sent to EmailJS, in bytes. */
+  /** Size of the encoded attachment as sent with the email, in bytes. */
   encodedBytes: number;
   save: () => void;
 }
@@ -89,7 +89,7 @@ export async function renderInvoicePdf(node: HTMLElement, fileName: string, pres
   }
 
   // jsPDF's own "datauristring" adds a non-standard `;filename=` parameter,
-  // so build a plain base64 data URL that EmailJS can decode.
+  // so build a plain base64 data URL.
   const base64 = btoa(pdf.output());
   return {
     blob: pdf.output("blob"),

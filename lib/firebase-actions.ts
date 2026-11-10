@@ -42,12 +42,12 @@ import type {
   BusinessProfile,
   Client,
   ClientInput,
-  EmailJsSettings,
   Invoice,
   InvoiceDraft,
   PaymentSettings,
   StoredStatus,
   UserProfile,
+  ZernioSettings,
 } from "./types";
 
 /* ------------------------------------------------------------------ */
@@ -88,7 +88,7 @@ function defaultProfile(user: User, username?: string): Omit<UserProfile, "creat
     email: user.email || "",
     business: { ...EMPTY_BUSINESS, email: user.email || "" },
     payment: { default: "link", link: "", bank: EMPTY_BANK },
-    emailjs: { serviceId: "", templateId: "", publicKey: "" },
+    zernio: { apiKey: "", accountId: "", mailbox: "" },
     invoicePrefix: "INV-",
     invoiceCounter: 0,
     defaultDueDays: 14,
@@ -214,8 +214,12 @@ export async function savePaymentSettings(payment: PaymentSettings) {
   await updateDoc(userRef(requireUid()), { payment });
 }
 
-export async function saveEmailJsSettings(emailjs: EmailJsSettings) {
-  await updateDoc(userRef(requireUid()), { emailjs });
+export async function saveZernioSettings(zernio: ZernioSettings) {
+  await updateDoc(userRef(requireUid()), { zernio });
+}
+
+export async function saveEmailDesign(emailDesign: string) {
+  await updateDoc(userRef(requireUid()), { emailDesign });
 }
 
 /* ------------------------------------------------------------------ */

@@ -1,13 +1,15 @@
 import type { Metadata } from "next";
 
 /**
- * Public site URL, used to build absolute links for share images, the sitemap
+ * Public site URL ("https://" is added if it was left off), used to build absolute links for share images, the sitemap
  * and robots.txt. Set NEXT_PUBLIC_SITE_URL (e.g. https://sharpbill.app) when you
  * deploy; on Vercel the production domain is picked up automatically.
  */
-export const SITE_URL = (
-  process.env.NEXT_PUBLIC_SITE_URL ||
-  (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:3000")
+const withScheme = (url: string) => (/^https?:\/\//i.test(url) ? url : `https://${url}`);
+
+export const SITE_URL = withScheme(
+  process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+    (process.env.VERCEL_PROJECT_PRODUCTION_URL ? process.env.VERCEL_PROJECT_PRODUCTION_URL : "http://localhost:3000"),
 ).replace(/\/$/, "");
 
 export const SITE_NAME = "SharpBill";

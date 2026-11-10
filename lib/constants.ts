@@ -51,11 +51,5 @@ export const EMPTY_BUSINESS: BusinessProfile = {
 };
 
 /** Variables filled in when an invoice email is sent (see lib/email.ts). */
-export const EMAIL_VARIABLES = {
-  /** {{name}} — plain text */
-  text: ["client_name", "business_name", "business_initials", "business_logo_url", "invoice_number", "amount", "issue_date", "due_date", "payment_cta_label", "payment_cta_url", "attachment_note"],
-  /** {{{name}}} — pre-escaped HTML, needs triple braces */
-  html: ["message_html", "payment_details_html"],
-} as const;
-export const EMPTY_EMAILJS = { serviceId: "", templateId: "", publicKey: "" };
+export const EMPTY_ZERNIO = { apiKey: "", accountId: "", mailbox: "" };
 

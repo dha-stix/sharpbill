@@ -8,9 +8,9 @@ import { Icon } from "@/components/ui/Icon";
 import { Modal } from "@/components/ui/Overlay";
 import { useToast } from "@/components/ui/Toast";
 import { useAuth } from "@/context/AuthContext";
-import { defaultEmailMessage, defaultEmailSubject, emailJsErrorMessage, hasEmailJsKeys, isEmailJsReady, isVariablesTooLarge, PAID_PLAN_MESSAGE, paysByLink, sendInvoiceEmail } from "@/lib/email";
+import { defaultEmailMessage, defaultEmailSubject, hasZernioKeys, isZernioReady, paysByLink, sendInvoiceEmail } from "@/lib/email";
 import type { InvoicePdf, PdfPreset } from "@/lib/pdf";
-import { saveEmailJsSettings, updateInvoiceStatus, uploadInvoicePdf } from "@/lib/firebase-actions";
+import { updateInvoiceStatus, uploadInvoicePdf } from "@/lib/firebase-actions";
 import { formatMoney } from "@/lib/format";
 import type { Invoice } from "@/lib/types";
 
@@ -20,7 +20,7 @@ const kb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
 /**
  * Email pop-up: recipient pre-filled from the client, editable subject/body,
- * PDF generated and attached on send via the user's EmailJS account.
+ * PDF generated and attached, sent from the user's Gmail through their own Zernio account.
  */
 export default function SendInvoiceModal({
   invoice,
@@ -57,12 +57,10 @@ function Composer({ invoice, onClose, makePdf, onSent, onSending }: { invoice: I
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState(() => defaultEmailSubject(invoice));
   const [message, setMessage] = useState(() => defaultEmailMessage(invoice));
-  // Set when EmailJS refuses the email because the account is on the Free plan.
-  const [needsPaidPlan, setNeedsPaidPlan] = useState(false);
   const [phase, setPhase] = useState<"compose" | "sending" | "sent">("compose");
   const [pdf, setPdf] = useState<InvoicePdf | null>(null);
   const [pdfError, setPdfError] = useState("");
-  const ready = isEmailJsReady(profile?.emailjs);
+  const ready = isZernioReady(profile?.zernio);
 
   // Build the email-sized PDF as soon as the pop-up opens, so Send doesn't have to wait for it.
   useEffect(() => {
@@ -91,21 +89,13 @@ function Composer({ invoice, onClose, makePdf, onSent, onSending }: { invoice: I
           throw new Error("Couldn’t create the “Download invoice” link, so the email was not sent. Check that Firebase Storage is enabled and its rules are deployed, then try again.");
         }
       }
-      await sendInvoiceEmail({ settings: profile.emailjs, invoice, to, cc, subject, message, pdfDataUrl: file.dataUrl, downloadUrl });
+      await sendInvoiceEmail({ settings: profile.zernio!, design: profile.emailDesign, invoice, to, cc, subject, message, pdfDataUrl: file.dataUrl, downloadUrl });
       if (invoice.status !== "PAID") await updateInvoiceStatus(invoice.id, "SENT");
       setPhase("sent");
       onSent?.();
     } catch (err) {
-      if (isVariablesTooLarge(err)) {
-        // EmailJS didn't take the PDF as an attachment (template setup or Free plan): explain, and require the keys to be verified again.
-        setNeedsPaidPlan(true);
-        saveEmailJsSettings({ ...profile.emailjs, verifiedKeys: "" }).catch(() => {});
-        setPhase("compose");
-        return;
-      }
-      // EmailJS failures carry a status code; anything else is one of our own messages.
-      const text = typeof (err as { status?: number })?.status === "number" ? emailJsErrorMessage(err) : (err as Error)?.message || "Email failed to send.";
-      toast(text, "error");
+      // Messages from lib/email are already written for the user (Zernio errors included).
+      toast((err as Error)?.message || "Email failed to send.", "error");
       setPhase("compose");
     } finally {
       onSending(false);
@@ -145,21 +135,15 @@ function Composer({ invoice, onClose, makePdf, onSent, onSending }: { invoice: I
             </div>
             {!pdf && !pdfError ? <Spinner /> : pdf ? <Icon name="check" className="text-lime-deep" strokeWidth={3} /> : null}
           </div>
-          {needsPaidPlan && (
-            <div role="alert" className="rounded-2xl border border-[#F0C9C5] bg-[#FBE6E4] p-4 text-sm text-danger">
-              <strong className="block">EmailJS didn’t accept the PDF attachment</strong>
-              {PAID_PLAN_MESSAGE} <Link href="/settings#emailjs" className="underline">Open Settings</Link>
-            </div>
-          )}
 
           <div className="-mx-6 -mb-5 mt-1 flex flex-wrap items-center justify-between gap-3 border-t border-line bg-paper-2 px-6 py-4">
             <span className="inline-flex items-center gap-2 text-[13px] text-muted">
               <span className={`size-2 rounded-full ${ready ? "bg-lime-deep" : "bg-danger"}`} />
-              {ready ? "Sends through your EmailJS service" : <>EmailJS isn’t connected (paid plan required) — <Link href="/settings#emailjs" className="underline">{hasEmailJsKeys(profile?.emailjs) ? "verify your keys" : "add keys"}</Link></>}
+              {ready ? `Sends from ${profile?.zernio?.mailbox || "your Gmail"} via Zernio` : <>Email sending isn’t connected — <Link href="/settings#email" className="underline">{hasZernioKeys(profile?.zernio) ? "verify it in Settings" : "connect Zernio"}</Link></>}
             </span>
             <div className="flex gap-2">
               <button type="button" className="btn btn-outline" onClick={onClose} disabled={phase === "sending"}>Cancel</button>
-              <button type="button" className="btn btn-ink" onClick={send} disabled={!ready || phase === "sending" || !to || !pdf || needsPaidPlan}>
+              <button type="button" className="btn btn-ink" onClick={send} disabled={!ready || phase === "sending" || !to || !pdf}>
                 {phase === "sending" ? <Spinner /> : <Icon name="send" size={16} className="text-lime" />}
                 {phase === "sending" ? "Sending…" : "Send invoice"}
               </button>

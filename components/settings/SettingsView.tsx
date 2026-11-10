@@ -9,12 +9,12 @@ import { useToast } from "@/components/ui/Toast";
 import { useAuth } from "@/context/AuthContext";
 import BankFields from "@/components/invoice/BankFields";
 import { bankText } from "@/lib/invoice-utils";
-import { emailJsFingerprint, hasEmailJsKeys, isEmailJsReady, verifyEmailJs } from "@/lib/email";
-import { EMPTY_BANK, EMPTY_BUSINESS, EMPTY_EMAILJS } from "@/lib/constants";
-import { saveBusinessProfile, saveEmailJsSettings, saveInvoiceSettings, savePaymentSettings } from "@/lib/firebase-actions";
+import { hasZernioKeys, isZernioReady, listGmailAccounts, verifyZernio, zernioFingerprint } from "@/lib/email";
+import { EMPTY_BANK, EMPTY_BUSINESS, EMPTY_ZERNIO } from "@/lib/constants";
+import { saveBusinessProfile, saveEmailDesign, saveInvoiceSettings, savePaymentSettings, saveZernioSettings } from "@/lib/firebase-actions";
 import { cn } from "@/lib/format";
 import { formatInvoiceNumber } from "@/lib/invoice-utils";
-import type { BusinessProfile, EmailJsSettings, PaymentSettings, UserProfile } from "@/lib/types";
+import type { BusinessProfile, PaymentSettings, UserProfile, ZernioSettings } from "@/lib/types";
 import type { User } from "firebase/auth";
 import BusinessFields from "./BusinessFields";
 import EmailTemplateGallery from "./EmailTemplateGallery";
@@ -23,7 +23,7 @@ const SECTIONS = [
   ["business", "Business profile"],
   ["account", "Account"],
   ["payment", "Payment methods"],
-  ["emailjs", "Email sending"],
+  ["email", "Email sending"],
   ["email-templates", "Email designs"],
 ];
 
@@ -66,30 +66,51 @@ function SettingsForm({ profile, user }: { profile: UserProfile; user: User }) {
   const [prefix, setPrefix] = useState(profile.invoicePrefix || "INV-");
   const [dueDays, setDueDays] = useState(profile.defaultDueDays ?? 14);
   const [pay, setPay] = useState<PaymentSettings>(() => ({ ...profile.payment, bank: { ...EMPTY_BANK, ...profile.payment?.bank } }));
-  const [ejs, setEjs] = useState<EmailJsSettings>(() => ({ ...EMPTY_EMAILJS, ...profile.emailjs }));
-  const [ejsError, setEjsError] = useState("");
-  // "Connected" means the saved keys passed a real test send; filled-in keys alone are not enough.
-  const connected = isEmailJsReady(profile.emailjs);
-  const needsCheck = !connected && hasEmailJsKeys(profile.emailjs);
-  const ejsDirty = emailJsFingerprint(ejs) !== emailJsFingerprint({ ...EMPTY_EMAILJS, ...profile.emailjs });
+  const [zr, setZr] = useState<ZernioSettings>(() => ({ ...EMPTY_ZERNIO, ...profile.zernio }));
+  const [zrError, setZrError] = useState("");
+  const [accounts, setAccounts] = useState<{ id: string; label: string; canSend: boolean }[] | null>(null);
+  const [finding, setFinding] = useState(false);
+  // "Connected" means the saved key + account sent a real test email; filled-in values alone are not enough.
+  const connected = isZernioReady(profile.zernio);
+  const needsCheck = !connected && hasZernioKeys(profile.zernio);
+  const zrDirty = zernioFingerprint(zr) !== zernioFingerprint({ ...EMPTY_ZERNIO, ...profile.zernio });
   const testEmail = biz.email || user.email || "";
 
+  /** Loads the Gmail mailboxes connected to this Zernio key; picks it automatically when there is only one. */
+  async function findAccounts() {
+    setZrError("");
+    if (!zr.apiKey.trim()) return setZrError("Enter your Zernio API key first.");
+    setFinding(true);
+    try {
+      const all = await listGmailAccounts(zr.apiKey);
+      const list = all.filter((a) => a.canSend);
+      setAccounts(list);
+      if (!all.length) setZrError("No Google account is connected to this Zernio key yet. Connect your Gmail in Zernio (with Email access), then try again.");
+      else if (!list.length) setZrError("Your Google account is connected to Zernio without Email access. Reconnect it in Zernio and allow Email, then try again.");
+      else if (list.length === 1) setZr((z) => ({ ...z, accountId: list[0].id, mailbox: list[0].label }));
+    } catch (e) {
+      setZrError((e as Error).message);
+    } finally {
+      setFinding(false);
+    }
+  }
+
   function verifyAndSave() {
-    setEjsError("");
-    const keys = { ...ejs, serviceId: ejs.serviceId.trim(), templateId: ejs.templateId.trim(), publicKey: ejs.publicKey.trim() };
-    if (!hasEmailJsKeys(keys)) return setEjsError("Enter your Service ID, Template ID and Public key.");
-    if (!testEmail) return setEjsError("Add your business email above first — the test email is sent there.");
+    setZrError("");
+    const keys: ZernioSettings = { ...zr, apiKey: zr.apiKey.trim(), accountId: zr.accountId.trim() };
+    if (!hasZernioKeys(keys)) return setZrError("Enter your Zernio API key and choose your Gmail account.");
+    if (!testEmail) return setZrError("Add your business email above first — the test email is sent there.");
     return save(
-      "ejs",
+      "zernio",
       async () => {
         try {
-          await verifyEmailJs(keys, testEmail, biz.name || "SharpBill");
+          await verifyZernio(keys, testEmail, biz.name || "SharpBill", profile.emailDesign);
         } catch (e) {
-          setEjsError((e as Error).message);
+          setZrError((e as Error).message);
           throw e;
         }
-        await saveEmailJsSettings({ ...keys, verifiedKeys: emailJsFingerprint(keys) });
-        setEjs(keys);
+        await saveZernioSettings({ ...keys, verifiedKeys: zernioFingerprint(keys) });
+        setZr(keys);
       },
       `Connected — test email sent to ${testEmail}`,
     );
@@ -178,12 +199,12 @@ function SettingsForm({ profile, user }: { profile: UserProfile; user: User }) {
             </SectionCard>
           </motion.div>
 
-          {/* EMAILJS */}
+          {/* EMAIL SENDING (ZERNIO) */}
           <motion.div variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0 } }}>
             <SectionCard
-              id="emailjs"
-              title="Email sending (EmailJS)"
-              description="Invoices are sent from your own EmailJS account (paid plan required). Keys are stored on your account only."
+              id="email"
+              title="Email sending (Zernio)"
+              description="Invoices are sent from your own Gmail through your own Zernio account. Your key is stored on your SharpBill account only."
               aside={
                 <span className={cn("inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-semibold", connected ? "bg-[#E2F3E8] text-[#1F6B42]" : needsCheck ? "bg-[#FFF1D6] text-[#8A5A00]" : "bg-[#FBE6E4] text-danger")}>
                   <span className="size-2 rounded-full bg-current" />
@@ -191,48 +212,64 @@ function SettingsForm({ profile, user }: { profile: UserProfile; user: User }) {
                 </span>
               }
             >
-              <div className="grid gap-4 md:grid-cols-3">
-                <Input label="Service ID" className="font-mono" placeholder="service_xxx" value={ejs.serviceId} onChange={(e) => setEjs({ ...ejs, serviceId: e.target.value })} />
-                <Input label="Template ID" className="font-mono" placeholder="template_xxx" value={ejs.templateId} onChange={(e) => setEjs({ ...ejs, templateId: e.target.value })} />
+              <ol className="mb-5 grid gap-2 rounded-2xl bg-paper p-4 text-sm text-slate sm:grid-cols-2">
+                {[
+                  "Create an account at zernio.com and add a payment method (Zernio requires one before sending Gmail emails).",
+                  "In Zernio, connect your Google account and allow Email access.",
+                  "Create a Zernio API key and paste it below.",
+                  "Click “Find my Gmail” to pick the mailbox, then verify.",
+                ].map((s, i) => (
+                  <li key={i} className="flex gap-2.5"><span className="grid size-6 shrink-0 place-items-center rounded-full bg-ink font-mono text-xs text-lime">{i + 1}</span>{s}</li>
+                ))}
+              </ol>
+              <div className="grid gap-4 md:grid-cols-2">
                 <div className="label">
-                  Public key
+                  Zernio API key
                   <div className="flex gap-2">
-                    <input className="field font-mono" type={showKey ? "text" : "password"} value={ejs.publicKey} onChange={(e) => setEjs({ ...ejs, publicKey: e.target.value })} placeholder="Your public key" />
+                    <input className="field font-mono" type={showKey ? "text" : "password"} autoComplete="off" value={zr.apiKey} onChange={(e) => setZr({ ...zr, apiKey: e.target.value })} placeholder="Your Zernio API key" />
                     <button type="button" className="btn btn-outline !px-3" onClick={() => setShowKey((s) => !s)} aria-label={showKey ? "Hide key" : "Show key"}>
                       <Icon name={showKey ? "eyeOff" : "eye"} size={16} />
                     </button>
                   </div>
                 </div>
+                <div className="label">
+                  Gmail account
+                  <div className="flex gap-2">
+                    {accounts && accounts.length > 1 ? (
+                      <select
+                        className="field min-w-0 flex-1"
+                        value={zr.accountId}
+                        onChange={(e) => setZr({ ...zr, accountId: e.target.value, mailbox: accounts.find((a) => a.id === e.target.value)?.label })}
+                      >
+                        <option value="">Choose a mailbox…</option>
+                        {accounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+                      </select>
+                    ) : (
+                      <input className="field font-mono" value={zr.accountId} onChange={(e) => setZr({ ...zr, accountId: e.target.value, mailbox: "" })} placeholder="Zernio account ID" />
+                    )}
+                    <button type="button" className="btn btn-outline shrink-0" disabled={finding} onClick={findAccounts}>
+                      {finding ? <Spinner /> : <Icon name="search" size={16} />} Find my Gmail
+                    </button>
+                  </div>
+                  {zr.mailbox && zr.mailbox !== zr.accountId && <span className="text-xs font-normal text-muted">Sends from {zr.mailbox}</span>}
+                </div>
               </div>
-              <p className="mt-4 text-[13px] text-muted">
-                <strong className="text-ink">A paid EmailJS plan (Personal or above) is required.</strong> Every invoice is emailed with its PDF attached, and EmailJS’s Free plan doesn’t allow attachments — so keys from a Free account won’t connect.
-              </p>
-              <ol className="mt-5 grid gap-2 rounded-2xl bg-paper p-4 text-sm text-slate sm:grid-cols-2">
-                {[
-                  "Create an account at emailjs.com on a paid plan (Personal or above) and connect an email service.",
-                  "Create a template and paste one of the designs below (Code mode).",
-                  "Set the template fields and attachment shown under “Invoice email designs” below.",
-                  "Copy your Service ID, Template ID and Public key into the fields above.",
-                ].map((s, i) => (
-                  <li key={i} className="flex gap-2.5"><span className="grid size-6 shrink-0 place-items-center rounded-full bg-ink font-mono text-xs text-lime">{i + 1}</span>{s}</li>
-                ))}
-              </ol>
-              {ejsError && (
-                <p role="alert" className="mt-4 rounded-xl border border-[#F0C9C5] bg-[#FBE6E4] px-4 py-3 text-sm text-danger">{ejsError}</p>
+              {zrError && (
+                <p role="alert" className="mt-4 rounded-xl border border-[#F0C9C5] bg-[#FBE6E4] px-4 py-3 text-sm text-danger">{zrError}</p>
               )}
               <p className="mt-4 text-[13px] text-muted">
-                {connected && !ejsDirty
-                  ? "These keys sent a test email with an attachment successfully."
-                  : <>To confirm the keys are correct and the plan is paid, a test email with a PDF attached is sent through your EmailJS account to <strong className="text-ink">{testEmail}</strong>. They only show as connected if it goes through.</>}
+                {connected && !zrDirty
+                  ? `Connected${profile.zernio?.mailbox ? ` — invoices are sent from ${profile.zernio.mailbox}` : ""}. Gmail allows 200 emails a day (500 on Google Workspace).`
+                  : <>To confirm everything works, a test email with a PDF attached is sent from your Gmail to <strong className="text-ink">{testEmail}</strong>. It only shows as connected if the email goes through.</>}
               </p>
-              <SaveButton busy={saving === "ejs"} onClick={verifyAndSave}>{connected && !ejsDirty ? "Verify again" : "Verify & save keys"}</SaveButton>
+              <SaveButton busy={saving === "zernio"} onClick={verifyAndSave}>{connected && !zrDirty ? "Verify again" : "Verify & save"}</SaveButton>
             </SectionCard>
           </motion.div>
 
           {/* EMAIL TEMPLATES */}
           <motion.div variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0 } }}>
-            <SectionCard id="email-templates" title="Invoice email designs" description="Six invoice-delivery emails, each matching an invoice design. Copy one into your EmailJS template — client, amount, due date, payment button and your message fill in automatically.">
-              <EmailTemplateGallery />
+            <SectionCard id="email-templates" title="Invoice email design" description="Choose how your invoice emails look. The client’s name, amount, due date, payment button and your message are filled in automatically.">
+              <EmailTemplateGallery selected={profile.emailDesign} onSelect={(id) => save("design", () => saveEmailDesign(id), "Email design saved")} />
             </SectionCard>
           </motion.div>
         </motion.div>

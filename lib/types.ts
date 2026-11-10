@@ -41,11 +41,15 @@ export interface PaymentSettings {
   bank: BankDetails;
 }
 
-export interface EmailJsSettings {
-  serviceId: string;
-  templateId: string;
-  publicKey: string;
-  /** The keys that last passed a real test send with an attachment (which needs a paid EmailJS plan). "Connected" only when it matches the current keys. */
+/** The user's own Zernio account, used to send invoice emails from their connected Gmail. */
+export interface ZernioSettings {
+  /** Zernio API key (secret: only ever sent to SharpBill's own /api/email routes, never to the browser of anyone else). */
+  apiKey: string;
+  /** Zernio account ID of the connected Google (Gmail) mailbox that sends the emails. */
+  accountId: string;
+  /** Mailbox address, shown in Settings and the send pop-up. */
+  mailbox?: string;
+  /** The key + account that last sent a test email successfully. "Connected" only when it matches the current values. */
   verifiedKeys?: string;
 }
 
@@ -55,7 +59,9 @@ export interface UserProfile {
   email: string;
   business: BusinessProfile;
   payment: PaymentSettings;
-  emailjs: EmailJsSettings;
+  zernio?: ZernioSettings;
+  /** Which of the six invoice email designs is sent (lib/email-templates.ts). */
+  emailDesign?: string;
   invoicePrefix: string;
   /** Number of invoices created so far; next invoice number is invoiceCounter + 1. */
   invoiceCounter: number;

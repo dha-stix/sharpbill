@@ -1,112 +1,75 @@
+import { emailDesign, renderEmail } from "./email-templates";
 import { formatDate, formatMoney, initials } from "./format";
 import { bankRows } from "./invoice-utils";
-import type { EmailJsSettings, Invoice } from "./types";
+import type { Invoice, ZernioSettings } from "./types";
 
-/** All three keys are filled in (not necessarily correct). */
-export function hasEmailJsKeys(s?: EmailJsSettings) {
-  return Boolean(s?.serviceId?.trim() && s?.templateId?.trim() && s?.publicKey?.trim());
+/* ------------------------------------------------------------------ */
+/* Zernio connection state                                             */
+/* ------------------------------------------------------------------ */
+
+/** Both values are filled in (not necessarily correct). */
+export function hasZernioKeys(s?: Partial<ZernioSettings>) {
+  return Boolean(s?.apiKey?.trim() && s?.accountId?.trim());
 }
 
-/** Identifies a set of keys, so a later change to any of them needs a new check. */
-export const emailJsFingerprint = (s: EmailJsSettings) => [s.serviceId, s.templateId, s.publicKey].map((v) => v.trim()).join("|");
+/** Identifies a key + account pair, so changing either needs a new check. */
+export const zernioFingerprint = (s: Partial<ZernioSettings>) => [s.apiKey, s.accountId].map((v) => (v ?? "").trim()).join("|");
 
-/** True only when these exact keys have sent a test email successfully. */
-export function isEmailJsReady(s?: EmailJsSettings) {
-  return !!s && hasEmailJsKeys(s) && s.verifiedKeys === emailJsFingerprint(s);
+/** True only when this exact key + account has sent a test email successfully. */
+export function isZernioReady(s?: Partial<ZernioSettings>) {
+  return !!s && hasZernioKeys(s) && s.verifiedKeys === zernioFingerprint(s);
 }
 
-/** Shown wherever EmailJS refuses the invoice PDF. */
-export const PAID_PLAN_MESSAGE =
-  "EmailJS refused the PDF attachment. Check two things in EmailJS, then verify your keys again in Settings: (1) your template’s Attachments tab has a Variable Attachment with the parameter name invoice_pdf, and (2) your account is on a paid plan (Personal or above) — the Free plan has no attachments.";
-
-/**
- * EmailJS allows 50 KB of plain variables on every plan; a PDF only escapes that limit when the template
- * declares it as a Variable Attachment (paid plans). So this error on an invoice email means the PDF
- * wasn't accepted as an attachment: the template lacks the `invoice_pdf` attachment, or the plan is Free.
- */
-export const isVariablesTooLarge = (err: unknown) => /variables size limit/i.test((err as { text?: string })?.text ?? "");
-
-/** Turns an EmailJS failure into something the user can act on. */
-export function emailJsErrorMessage(err: unknown) {
-  const { status, text } = (err ?? {}) as { status?: number; text?: string };
-  const t = (text || (err as Error)?.message || "").trim();
-  if (/public key/i.test(t)) return "The Public key is not valid. Copy it from EmailJS → Account → General.";
-  if (/service id/i.test(t)) return "That Service ID doesn’t exist on this EmailJS account. Copy it from EmailJS → Email Services.";
-  if (/template id/i.test(t)) return "That Template ID doesn’t exist on this EmailJS account. Copy it from EmailJS → Email Templates.";
-  if (/recipients? address is empty/i.test(t)) return "The keys work, but the template has no recipient. Set its “To Email” field to {{to_email}} in EmailJS.";
-  if (isVariablesTooLarge(err)) return PAID_PLAN_MESSAGE;
-  if (status === 412) return `EmailJS couldn’t send through your email service — reconnect it in EmailJS → Email Services.${t ? ` (${t})` : ""}`;
-  if (status === 426 || /quota|limit/i.test(t)) return `Your EmailJS account has reached a sending limit.${t ? ` (${t})` : ""}`;
-  if (status === 429) return "EmailJS is rate-limiting requests. Wait a few seconds and try again.";
-  if (status === 0 || /failed to fetch|network/i.test(t)) return "Couldn’t reach EmailJS. Check your internet connection and try again.";
-  return t ? `EmailJS rejected the request: ${t}` : "EmailJS rejected the request.";
+/** What the /api/email routes return when Zernio (or the request) fails. */
+interface ApiError {
+  status: number;
+  code?: string;
+  message?: string;
+  param?: string;
+  reason?: string;
+  resetsAt?: string;
 }
 
-/**
- * A one-page PDF for the test email. It is deliberately the size of a real invoice PDF (over 50 KB):
- * EmailJS only accepts that when the template has the `invoice_pdf` attachment and the plan allows attachments.
- */
-async function testPdfDataUrl(businessName: string) {
-  const { jsPDF } = await import("jspdf");
-  const pdf = new jsPDF({ unit: "mm", format: "a4" });
-  pdf.setFontSize(20);
-  pdf.text("SharpBill test attachment", 20, 30);
-  pdf.setFontSize(12);
-  pdf.text(`EmailJS is connected for ${businessName}. Invoice PDFs will arrive like this one.`, 20, 42, { maxWidth: 170 });
-  // A block of random pixels can't be compressed, which gives the file a realistic size.
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = 360;
-  const ctx = canvas.getContext("2d")!;
-  const noise = ctx.createImageData(360, 360);
-  for (let i = 0; i < noise.data.length; i++) noise.data[i] = i % 4 === 3 ? 255 : Math.floor(Math.random() * 256);
-  ctx.putImageData(noise, 0, 0);
-  pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), "JPEG", 20, 56, 60, 60);
-  pdf.setFontSize(9);
-  pdf.text("Test pattern (gives this file the size of a real invoice).", 20, 122);
-  return `data:application/pdf;base64,${btoa(pdf.output())}`;
-}
-
-/**
- * Checks the keys the only way EmailJS allows: by sending a real test email (to the user's own address).
- * The test carries a PDF the size of a real invoice, so it only passes when the keys are right, the template
- * has the `invoice_pdf` attachment, and the account is on a plan that allows attachments.
- * Resolves when EmailJS accepts it; throws with a readable message otherwise.
- */
-export async function verifyEmailJs(settings: EmailJsSettings, to: string, businessName: string) {
-  const emailjs = (await import("@emailjs/browser")).default;
-  const message = "This is a test from SharpBill. Your EmailJS keys are correct — invoices you send will arrive like this, with the PDF attached.";
-  const today = formatDate(new Date().toISOString().slice(0, 10));
-  try {
-    await emailjs.send(
-      settings.serviceId.trim(),
-      settings.templateId.trim(),
-      {
-        to_email: to,
-        cc_email: "",
-        reply_to: to,
-        subject: `Test email from ${businessName} — EmailJS is connected`,
-        message,
-        message_html: textToHtml(message),
-        client_name: "Test Client",
-        business_name: businessName,
-        business_initials: initials(businessName),
-        business_logo_url: "",
-        invoice_number: "INV-TEST",
-        amount: formatMoney(0, "USD"),
-        issue_date: today,
-        due_date: today,
-        payment_details_html: "Payment details appear here on real invoices.",
-        payment_cta_label: "Pay now",
-        payment_cta_url: "https://www.emailjs.com/",
-        payment_link: "",
-        attachment_note: "\u{1F4CE} A test PDF is attached.",
-        invoice_pdf: await testPdfDataUrl(businessName),
-      },
-      { publicKey: settings.publicKey.trim() },
-    );
-  } catch (err) {
-    throw new Error(emailJsErrorMessage(err));
+/** Turns a Zernio failure into something the user can act on. */
+export function zernioErrorMessage(e: ApiError) {
+  switch (e.code) {
+    case "missing_credentials":
+    case "invalid_credentials":
+      return "Your Zernio API key isn’t valid. Create or copy a key in your Zernio dashboard and verify again in Settings.";
+    case "reconnect_required":
+      return "Google disconnected your Gmail from Zernio. Reconnect the Google account in Zernio, then verify again in Settings.";
+    case "account_scope_missing":
+      return "Your Gmail is connected to Zernio without email access. Reconnect the Google account in Zernio with the Email permission.";
+    case "payment_required":
+      return "Zernio needs a payment method on your workspace before it can send Gmail emails. Add one in your Zernio dashboard.";
+    case "email_send_cap_reached":
+      return `You’ve reached today’s Gmail sending limit (200 a day for Gmail, 500 for Google Workspace).${e.resetsAt ? ` It resets ${new Date(e.resetsAt).toLocaleString()}.` : " It resets at midnight UTC."}`;
+    case "rate_limited":
+      return "Zernio has paused sending for a short while (too many emails in a short time). Try again in a few minutes.";
+    case "network_error":
+      return "Couldn’t reach Zernio. Check your connection and try again.";
   }
+  if (e.status === 404 || e.param === "accountId") return "That Gmail account ID wasn’t found on your Zernio account. Pick it again in Settings.";
+  if (e.status === 0) return "Couldn’t reach SharpBill’s server. Check your connection and try again.";
+  return e.message ? `Zernio couldn’t send the email: ${e.message}` : "Zernio couldn’t send the email. Please try again.";
+}
+
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  } catch {
+    throw new Error(zernioErrorMessage({ status: 0 }));
+  }
+  const json = (await res.json().catch(() => ({}))) as T & { error?: ApiError };
+  if (!res.ok) throw new Error(zernioErrorMessage(json.error ?? { status: res.status }));
+  return json;
+}
+
+/** The Gmail mailboxes connected to a Zernio account, for the picker in Settings. */
+export async function listGmailAccounts(apiKey: string) {
+  const { accounts } = await postJson<{ accounts: { id: string; label: string; canSend: boolean }[] }>("/api/email/accounts", { apiKey: apiKey.trim() });
+  return accounts;
 }
 
 export function defaultEmailSubject(inv: Invoice) {
@@ -176,8 +139,51 @@ function isPdfDataUrl(url: string) {
   }
 }
 
+/** "a@x.com, b@y.com" → [{ email }] */
+const splitAddresses = (v?: string) =>
+  (v ?? "")
+    .split(/[,;\s]+/)
+    .map((e) => e.trim())
+    .filter(Boolean)
+    .map((email) => ({ email }));
+
+interface EmailContent {
+  settings: ZernioSettings;
+  design?: string;
+  to: string;
+  cc?: string;
+  replyTo?: string;
+  fromName: string;
+  subject: string;
+  /** Plain-text message; also sent as the email's text part. */
+  message: string;
+  vars: Record<string, string>;
+  pdf: { filename: string; dataUrl: string };
+}
+
+/** Fills the chosen design and sends it, with the PDF attached, through the user's Zernio account. */
+async function sendEmail({ settings, design, to, cc, replyTo, fromName, subject, message, vars, pdf }: EmailContent) {
+  // Never send an invoice email without a real PDF attached.
+  if (!isPdfDataUrl(pdf.dataUrl)) throw new Error("The invoice PDF couldn’t be attached, so the email was not sent. Please try again.");
+  const html = renderEmail(emailDesign(design).html, vars);
+  return postJson<{ id: string | null }>("/api/email/send", {
+    apiKey: settings.apiKey.trim(),
+    accountId: settings.accountId.trim(),
+    to: splitAddresses(to),
+    cc: splitAddresses(cc),
+    replyTo: splitAddresses(replyTo),
+    fromName,
+    subject,
+    html,
+    text: message,
+    attachments: [{ filename: `${pdf.filename}.pdf`, contentType: "application/pdf", base64: pdf.dataUrl.slice(pdf.dataUrl.indexOf(",") + 1) }],
+  });
+}
+
 interface SendArgs {
-  settings: EmailJsSettings;
+  settings: ZernioSettings;
+  /** Email design id (Settings → Invoice email design). */
+  design?: string;
   invoice: Invoice;
   to: string;
   cc?: string;
@@ -189,25 +195,20 @@ interface SendArgs {
   downloadUrl?: string;
 }
 
-/**
- * Sends the invoice through the user's own EmailJS account.
- * The EmailJS template must have a "Variable Attachment" with parameter name
- * `invoice_pdf` (content type application/pdf) for the PDF to be attached.
- */
-export async function sendInvoiceEmail({ settings, invoice, to, cc, subject, message, pdfDataUrl, downloadUrl }: SendArgs) {
-  // Never send an invoice email without a real PDF attached.
-  if (!isPdfDataUrl(pdfDataUrl)) throw new Error("The invoice PDF couldn’t be attached, so the email was not sent. Please try again.");
-  const emailjs = (await import("@emailjs/browser")).default;
+/** Sends an invoice from the user's own Gmail, through their Zernio account, using their chosen email design. */
+export async function sendInvoiceEmail({ settings, design, invoice, to, cc, subject, message, pdfDataUrl, downloadUrl }: SendArgs) {
   const cta = paymentCta(invoice, downloadUrl);
-  return emailjs.send(
-    settings.serviceId,
-    settings.templateId,
-    {
-      to_email: to,
-      cc_email: cc || "",
-      reply_to: invoice.business.email,
-      subject,
-      message,
+  return sendEmail({
+    settings,
+    design,
+    to,
+    cc,
+    replyTo: invoice.business.email,
+    fromName: invoice.business.name,
+    subject,
+    message,
+    pdf: { filename: invoice.number, dataUrl: pdfDataUrl },
+    vars: {
       client_name: invoice.client.name,
       business_name: invoice.business.name,
       business_initials: initials(invoice.business.name),
@@ -216,16 +217,55 @@ export async function sendInvoiceEmail({ settings, invoice, to, cc, subject, mes
       amount: formatMoney(invoice.total, invoice.currency),
       issue_date: formatDate(invoice.issueDate),
       due_date: formatDate(invoice.dueDate),
-      // HTML variables — use triple braces in EmailJS: {{{message_html}}}
       message_html: textToHtml(message),
       payment_details_html: paymentDetailsHtml(invoice),
       payment_cta_label: cta.label,
       payment_cta_url: cta.url,
-      // kept for templates made before the HTML variables existed
-      payment_link: invoice.payment.type === "link" && invoice.payment.link ? absoluteUrl(invoice.payment.link) : "",
       attachment_note: attachmentNote(invoice.number),
-      invoice_pdf: pdfDataUrl,
     },
-    { publicKey: settings.publicKey }
-  );
+  });
+}
+
+/** A small one-page PDF for the test email, so the user can see the attachment arrive. */
+async function testPdfDataUrl(businessName: string) {
+  const { jsPDF } = await import("jspdf");
+  const pdf = new jsPDF({ unit: "mm", format: "a4" });
+  pdf.setFontSize(20);
+  pdf.text("SharpBill test attachment", 20, 30);
+  pdf.setFontSize(12);
+  pdf.text(`Zernio is connected for ${businessName}. Invoice PDFs will arrive like this one.`, 20, 42, { maxWidth: 170 });
+  return `data:application/pdf;base64,${btoa(pdf.output())}`;
+}
+
+/**
+ * Checks the Zernio key and Gmail account by sending a real test email, in the chosen design and with
+ * a test PDF attached, to the user's own address. Throws with a readable message if Zernio refuses it.
+ */
+export async function verifyZernio(settings: ZernioSettings, to: string, businessName: string, design?: string) {
+  const message = "This is a test from SharpBill. Your Zernio account is connected — invoices you send will arrive like this, from your Gmail, with the PDF attached.";
+  const today = formatDate(new Date().toISOString().slice(0, 10));
+  await sendEmail({
+    settings,
+    design,
+    to,
+    replyTo: to,
+    fromName: businessName,
+    subject: `Test email from ${businessName} — invoice emails are connected`,
+    message,
+    pdf: { filename: "INV-TEST", dataUrl: await testPdfDataUrl(businessName) },
+    vars: {
+      client_name: "Test Client",
+      business_name: businessName,
+      business_initials: initials(businessName),
+      invoice_number: "INV-TEST",
+      amount: formatMoney(0, "USD"),
+      issue_date: today,
+      due_date: today,
+      message_html: textToHtml(message),
+      payment_details_html: "Payment details appear here on real invoices.",
+      payment_cta_label: "Pay now",
+      payment_cta_url: "https://zernio.com/",
+      attachment_note: "\u{1F4CE} A test PDF is attached.",
+    },
+  });
 }

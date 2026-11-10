@@ -1,12 +1,10 @@
 /**
- * Copy-ready invoice-delivery emails for EmailJS.
- *
- * Paste one into an EmailJS template (Content → code view). Every template uses
- * the same variables, filled in by lib/email.ts when an invoice is sent:
+ * The six invoice-delivery email designs. SharpBill fills one in (renderEmail) and sends
+ * the finished HTML through the user's Zernio account. Every design uses the same variables:
  *   {{client_name}} {{business_name}} {{business_initials}} {{invoice_number}}
  *   {{amount}} {{issue_date}} {{due_date}} {{payment_cta_label}} {{payment_cta_url}}
  *   {{{message_html}}} {{{payment_details_html}}}   ← triple braces: pre-escaped HTML
- * The PDF arrives as the `invoice_pdf` variable attachment.
+ * The invoice PDF is sent as a real attachment alongside the HTML.
  *
  * Built for email clients: tables, inline styles, web-safe fonts, bulletproof
  * buttons, a hidden preheader and a single mobile media query.
@@ -306,7 +304,21 @@ export const EMAIL_TEMPLATES: EmailTemplate[] = [
   { id: "counterfoil", name: "Counterfoil", pairsWith: "Counterfoil", description: "Ticket stub with a perforated edge, coral accents.", swatch: { bg: "#FFEDE8", ink: "#2A120C", accent: "#B93A26" }, html: counterfoil },
 ];
 
-/** Fills variables with sample values for the in-app preview (mirrors EmailJS behaviour). */
+export const DEFAULT_EMAIL_DESIGN = "monolith";
+
+export const emailDesign = (id?: string) => EMAIL_TEMPLATES.find((t) => t.id === id) ?? EMAIL_TEMPLATES[0];
+
+const escapeHtml = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+/**
+ * Fills a design's variables: {{name}} is HTML-escaped text, {{{name}}} is inserted as-is (already safe HTML).
+ * Unknown variables become empty, so a design never shows raw braces to a client.
+ */
+export function renderEmail(html: string, vars: Record<string, string>) {
+  return html.replace(/\{\{(\{?)(\w+)\}?\}\}/g, (_, raw: string, k: string) => (raw ? vars[k] ?? "" : escapeHtml(vars[k] ?? "")));
+}
+
+/** Fills variables with sample values for the in-app preview. */
 export function previewHtml(html: string) {
   const sample: Record<string, string> = {
     client_name: "Maya",
@@ -323,5 +335,5 @@ export function previewHtml(html: string) {
       "Hi Maya,<br><br>Please find invoice INV-024 attached to this email as a PDF, for $4,500.00, due on 24 October 2026.<br><br>Thank you for your business!<br>Studio Ade",
     payment_details_html: 'Pay online: <a href="#" style="color:inherit;">pay.studioade.co/inv-024</a>',
   };
-  return html.replace(/\{\{\{?(\w+)\}?\}\}/g, (_, k: string) => sample[k] ?? `{{${k}}}`);
+  return renderEmail(html, sample);
 }

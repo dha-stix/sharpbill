@@ -2,7 +2,7 @@
 
 # SharpBill
 
-Invoicing for freelancers: create invoices in any currency from 8 template types, email them to clients (PDF attached) through your own EmailJS account, or download print-ready PDFs.
+Invoicing for freelancers: create invoices in any currency from 8 template types, email them to clients (PDF attached) from your own Gmail through your own Zernio account, or download print-ready PDFs.
 
 Built with **Next.js 16 (App Router)**, **TypeScript**, **Tailwind CSS v4**, **Framer Motion** and **Firebase** (Auth + Firestore).
 
@@ -47,18 +47,19 @@ SharpBill is a server-rendered Next.js app, so it uses **Firebase App Hosting** 
 
 > App Hosting officially lists Next.js up to 15.2; this project is on Next.js 16, which Firebase describes as "might work, but not officially supported". If a rollout fails on the framework version, the fallback is hosting the site on Vercel and keeping Firebase for sign-in and data — no code changes needed, just the same environment variables.
 
-### EmailJS setup (per user, done in-app at /settings)
+### Email sending with Zernio (per user, done in-app at /settings)
 
-1. Create an EmailJS account and connect an email service.
-2. Create a template and set **Subject** `{{subject}}`, **To email** `{{to_email}}`, **Reply to** `{{reply_to}}` (and optionally **CC** `{{cc_email}}`).
-3. In **Attachments**, add a **Variable Attachment**: parameter `invoice_pdf`, filename `{{invoice_number}}.pdf`, content type **PDF**.
-4. Open **Content → Edit content → Code editor** and paste one of the six invoice email designs from **Settings → Invoice email designs** (Monolith, Blueprint, Cycle, Atelier, Emerald, Counterfoil — each pairs with the invoice design of the same name).
-5. Paste the Service ID, Template ID and Public key into **Settings → Email sending**.
+Invoices are emailed from each user's own Gmail through **their own Zernio account** ([docs](https://docs.zernio.com/platforms/google)):
 
-The designs are table-based HTML with inline styles (works in Gmail, Apple Mail and Outlook) and use these variables, filled in by `lib/email.ts`: `{{client_name}}`, `{{business_name}}`, `{{business_initials}}`, `{{invoice_number}}`, `{{amount}}`, `{{issue_date}}`, `{{due_date}}`, `{{payment_cta_label}}`, `{{payment_cta_url}}`, and the pre-escaped HTML blocks `{{{message_html}}}` and `{{{payment_details_html}}}` (triple braces). When an invoice is paid by bank transfer, the button becomes "Reply about payment" and the bank details appear in the payment block.
+1. Create an account at zernio.com and add a payment method (Zernio requires one before Gmail sends).
+2. In Zernio, connect the Google account with **Email** access.
+3. Create a Zernio API key and paste it into **Settings → Email sending**, then click **Find my Gmail** (or paste the Zernio account ID).
+4. **Verify & save** sends a test email with a test PDF to the business email; it only shows "Connected" if Zernio accepts it.
 
-> **A paid EmailJS plan is required** (Personal or above) — every invoice email carries its PDF, and the Free plan has no attachments. **Settings → Email sending → Verify & save keys** sends a real test email with a test PDF; the keys only show as "Connected" if EmailJS accepts it. If it is refused, check that the attachment's **Parameter Name** is exactly `invoice_pdf` (not the filename). Emailed PDFs use a lighter rendering than downloads to stay well under plan limits.
->
+The key is stored on the user's own profile (owner-only Firestore rules). The browser posts it to SharpBill's own route handlers (`app/api/email/send`, `app/api/email/accounts`), which forward to `https://zernio.com/api/v1` with `Authorization: Bearer <key>` — the key is never sent to any other site.
+
+**Designs.** Settings → Invoice email design picks one of six designs (Monolith, Blueprint, Cycle, Atelier, Emerald, Counterfoil) from `lib/email-templates.ts`. SharpBill fills in the variables (`renderEmail`: `{{name}}` is escaped text, `{{{name}}}` is pre-escaped HTML) and sends the finished HTML with the invoice PDF as a real attachment. Gmail limits: 200 emails a day (500 on Google Workspace), 25 MB of attachments per email.
+
 > **Email button.** Invoices with a payment link get a "Pay now" button. Bank-transfer invoices get "Download invoice": the PDF is stored in Firebase Storage at `users/{uid}/invoices/{invoiceId}.pdf` and the button uses its download URL, so `storage.rules` must be deployed.
 
 ## Social share previews
@@ -78,7 +79,7 @@ Shared pieces (fonts, logo, colours) live in `lib/og.tsx`; fonts are bundled in 
 ## Data model (Firestore)
 
 ```
-users/{uid}                      profile, business info, payment defaults, EmailJS keys, invoiceCounter
+users/{uid}                      profile, business info, payment defaults, Zernio key + Gmail account, email design, invoiceCounter
 users/{uid}/clients/{clientId}   client details + invoiceCount (per-client order number) + totalBilled
 users/{uid}/invoices/{invoiceId} invoice with client/business snapshots, items, totals, status
 ```
