@@ -10,6 +10,7 @@ interface SendBody {
   accountId: unknown;
   to: unknown;
   cc?: unknown;
+  bcc?: unknown;
   replyTo?: unknown;
   fromName?: unknown;
   subject: unknown;
@@ -36,10 +37,11 @@ export async function POST(request: Request) {
 
   const to = recipients(body.to, 100);
   const cc = recipients(body.cc, 100);
+  const bcc = recipients(body.bcc, 100);
   const replyTo = recipients(body.replyTo, 5);
   if (!isNonEmptyString(body.apiKey) || !isNonEmptyString(body.accountId, 200))
     return Response.json({ error: { status: 400, code: "missing_settings", message: "Add your Zernio API key and Gmail account ID in Settings." } }, { status: 400 });
-  if (!to?.length || !cc || !replyTo) return Response.json({ error: { status: 400, code: "invalid_recipient", message: "Check the email addresses." } }, { status: 400 });
+  if (!to?.length || !cc || !bcc || !replyTo) return Response.json({ error: { status: 400, code: "invalid_recipient", message: "Check the email addresses." } }, { status: 400 });
   if (!isNonEmptyString(body.subject, 998) || !isNonEmptyString(body.html, 2_000_000))
     return Response.json({ error: { status: 400, message: "The email needs a subject and a message." } }, { status: 400 });
 
@@ -54,6 +56,7 @@ export async function POST(request: Request) {
       accountId: body.accountId.trim(),
       to,
       ...(cc.length ? { cc } : {}),
+      ...(bcc.length ? { bcc } : {}),
       ...(replyTo.length ? { replyTo } : {}),
       ...(isNonEmptyString(body.fromName, 200) ? { fromName: body.fromName } : {}),
       subject: body.subject,

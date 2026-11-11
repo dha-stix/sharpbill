@@ -152,6 +152,7 @@ interface EmailContent {
   design?: string;
   to: string;
   cc?: string;
+  bcc?: string;
   replyTo?: string;
   fromName: string;
   subject: string;
@@ -162,7 +163,7 @@ interface EmailContent {
 }
 
 /** Fills the chosen design and sends it, with the PDF attached, through the user's Zernio account. */
-async function sendEmail({ settings, design, to, cc, replyTo, fromName, subject, message, vars, pdf }: EmailContent) {
+async function sendEmail({ settings, design, to, cc, bcc, replyTo, fromName, subject, message, vars, pdf }: EmailContent) {
   // Never send an invoice email without a real PDF attached.
   if (!isPdfDataUrl(pdf.dataUrl)) throw new Error("The invoice PDF couldn’t be attached, so the email was not sent. Please try again.");
   const html = renderEmail(emailDesign(design).html, vars);
@@ -171,6 +172,7 @@ async function sendEmail({ settings, design, to, cc, replyTo, fromName, subject,
     accountId: settings.accountId.trim(),
     to: splitAddresses(to),
     cc: splitAddresses(cc),
+    bcc: splitAddresses(bcc),
     replyTo: splitAddresses(replyTo),
     fromName,
     subject,
@@ -187,6 +189,8 @@ interface SendArgs {
   invoice: Invoice;
   to: string;
   cc?: string;
+  /** Hidden copies: these addresses get the email but don't appear to other recipients. */
+  bcc?: string;
   subject: string;
   message: string;
   /** Base64 PDF data URL — every invoice email carries the PDF. */
@@ -196,13 +200,14 @@ interface SendArgs {
 }
 
 /** Sends an invoice from the user's own Gmail, through their Zernio account, using their chosen email design. */
-export async function sendInvoiceEmail({ settings, design, invoice, to, cc, subject, message, pdfDataUrl, downloadUrl }: SendArgs) {
+export async function sendInvoiceEmail({ settings, design, invoice, to, cc, bcc, subject, message, pdfDataUrl, downloadUrl }: SendArgs) {
   const cta = paymentCta(invoice, downloadUrl);
   return sendEmail({
     settings,
     design,
     to,
     cc,
+    bcc,
     replyTo: invoice.business.email,
     fromName: invoice.business.name,
     subject,

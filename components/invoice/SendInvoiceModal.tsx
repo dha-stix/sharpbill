@@ -55,6 +55,7 @@ function Composer({ invoice, onClose, makePdf, onSent, onSending }: { invoice: I
   const toast = useToast();
   const [to, setTo] = useState(invoice.client.email);
   const [cc, setCc] = useState("");
+  const [bcc, setBcc] = useState("");
   const [subject, setSubject] = useState(() => defaultEmailSubject(invoice));
   const [message, setMessage] = useState(() => defaultEmailMessage(invoice));
   const [phase, setPhase] = useState<"compose" | "sending" | "sent">("compose");
@@ -89,7 +90,7 @@ function Composer({ invoice, onClose, makePdf, onSent, onSending }: { invoice: I
           throw new Error("Couldn’t create the “Download invoice” link, so the email was not sent. Check that Firebase Storage is enabled and its rules are deployed, then try again.");
         }
       }
-      await sendInvoiceEmail({ settings: profile.zernio!, design: profile.emailDesign, invoice, to, cc, subject, message, pdfDataUrl: file.dataUrl, downloadUrl });
+      await sendInvoiceEmail({ settings: profile.zernio!, design: profile.emailDesign, invoice, to, cc, bcc, subject, message, pdfDataUrl: file.dataUrl, downloadUrl });
       if (invoice.status !== "PAID") await updateInvoiceStatus(invoice.id, "SENT");
       setPhase("sent");
       onSent?.();
@@ -119,9 +120,11 @@ function Composer({ invoice, onClose, makePdf, onSent, onSending }: { invoice: I
         </motion.div>
       ) : (
         <motion.div key="compose" exit={{ opacity: 0 }} className="flex flex-col gap-4">
+          {/* Each field accepts several addresses separated by commas. */}
+          <Input label="To" type="email" multiple value={to} onChange={(e) => setTo(e.target.value)} />
           <div className="grid gap-3 sm:grid-cols-2">
-            <Input label="To" type="email" value={to} onChange={(e) => setTo(e.target.value)} />
-            <Input label="CC" type="email" value={cc} onChange={(e) => setCc(e.target.value)} placeholder="Optional" />
+            <Input label="CC" type="email" multiple value={cc} onChange={(e) => setCc(e.target.value)} placeholder="Optional" />
+            <Input label="BCC" type="email" multiple value={bcc} onChange={(e) => setBcc(e.target.value)} placeholder="Optional · hidden from others" />
           </div>
           <Input label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
           <Textarea label="Message" rows={8} value={message} onChange={(e) => setMessage(e.target.value)} />
