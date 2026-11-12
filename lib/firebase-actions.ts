@@ -215,7 +215,9 @@ export async function savePaymentSettings(payment: PaymentSettings) {
 }
 
 export async function saveZernioSettings(zernio: ZernioSettings) {
-  await updateDoc(userRef(requireUid()), { zernio });
+  // Firestore rejects `undefined` values, so leave unset optional fields out.
+  const clean = Object.fromEntries(Object.entries(zernio).filter(([, v]) => v !== undefined));
+  await updateDoc(userRef(requireUid()), { zernio: clean });
 }
 
 export async function saveEmailDesign(emailDesign: string) {

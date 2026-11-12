@@ -23,7 +23,7 @@ interface Feature {
 }
 
 const FEATURES: Feature[] = [
-  { n: "01", tag: "SEND", title: "Straight to their inbox", body: "Sent from your own Gmail. The client’s email is pre-filled, the PDF attached, the message yours to edit.", art: <MailIllustration />, tone: "dark", wide: true },
+  { n: "01", tag: "SEND", title: "Straight to their inbox", body: "Sent from your own Gmail or business email. The client’s email is pre-filled, the PDF attached, the message yours to edit.", art: <MailIllustration />, tone: "dark", wide: true },
   { n: "02", tag: "DOWNLOAD", title: "Print-ready PDFs", body: "Crisp, branded and ready to print in one click.", art: <PrinterIllustration />, tone: "lime" },
   { n: "03", tag: "COUNT", title: "Automatic numbering", body: "Serial invoice numbers plus a per-client order count.", art: <NumberingIllustration />, tone: "light" },
   { n: "04", tag: "GET PAID", title: "Link or bank transfer", body: "Set a default and override it on any invoice.", art: <PaymentIllustration />, tone: "light" },

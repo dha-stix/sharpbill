@@ -20,7 +20,7 @@ const kb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
 /**
  * Email pop-up: recipient pre-filled from the client, editable subject/body,
- * PDF generated and attached, sent from the user's Gmail through their own Zernio account.
+ * PDF generated and attached, sent from the user’s own mailbox (Gmail or IMAP/SMTP) through their own Zernio account.
  */
 export default function SendInvoiceModal({
   invoice,
@@ -142,7 +142,7 @@ function Composer({ invoice, onClose, makePdf, onSent, onSending }: { invoice: I
           <div className="-mx-6 -mb-5 mt-1 flex flex-wrap items-center justify-between gap-3 border-t border-line bg-paper-2 px-6 py-4">
             <span className="inline-flex items-center gap-2 text-[13px] text-muted">
               <span className={`size-2 rounded-full ${ready ? "bg-lime-deep" : "bg-danger"}`} />
-              {ready ? `Sends from ${profile?.zernio?.mailbox || "your Gmail"} via Zernio` : <>Email sending isn’t connected — <Link href="/settings#email" className="underline">{hasZernioKeys(profile?.zernio) ? "verify it in Settings" : "connect Zernio"}</Link></>}
+              {ready ? `Sends from ${profile?.zernio?.mailbox || "your mailbox"} via Zernio` : <>Email sending isn’t connected — <Link href="/settings#email" className="underline">{hasZernioKeys(profile?.zernio) ? "verify it in Settings" : "connect Zernio"}</Link></>}
             </span>
             <div className="flex gap-2">
               <button type="button" className="btn btn-outline" onClick={onClose} disabled={phase === "sending"}>Cancel</button>

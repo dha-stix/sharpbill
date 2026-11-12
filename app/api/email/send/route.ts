@@ -28,7 +28,7 @@ const recipients = (v: unknown, max: number): Recipient[] | null => {
 
 /**
  * Sends one email through the caller's own Zernio account (POST /v1/email/messages).
- * The browser supplies its user's Zernio key and Gmail account ID; this route only checks the
+ * The browser supplies its user’s Zernio key and mailbox account ID; this route only checks the
  * request and forwards it, so the key never has to be exposed to Zernio from the browser.
  */
 export async function POST(request: Request) {
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
   const bcc = recipients(body.bcc, 100);
   const replyTo = recipients(body.replyTo, 5);
   if (!isNonEmptyString(body.apiKey) || !isNonEmptyString(body.accountId, 200))
-    return Response.json({ error: { status: 400, code: "missing_settings", message: "Add your Zernio API key and Gmail account ID in Settings." } }, { status: 400 });
+    return Response.json({ error: { status: 400, code: "missing_settings", message: "Add your Zernio API key and choose your sending mailbox in Settings." } }, { status: 400 });
   if (!to?.length || !cc || !bcc || !replyTo) return Response.json({ error: { status: 400, code: "invalid_recipient", message: "Check the email addresses." } }, { status: 400 });
   if (!isNonEmptyString(body.subject, 998) || !isNonEmptyString(body.html, 2_000_000))
     return Response.json({ error: { status: 400, message: "The email needs a subject and a message." } }, { status: 400 });

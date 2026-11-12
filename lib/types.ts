@@ -41,14 +41,16 @@ export interface PaymentSettings {
   bank: BankDetails;
 }
 
-/** The user's own Zernio account, used to send invoice emails from their connected Gmail. */
+/** The user's own Zernio account, used to send invoice emails from their connected mailbox (Gmail or any IMAP/SMTP email). */
 export interface ZernioSettings {
   /** Zernio API key (secret: only ever sent to SharpBill's own /api/email routes, never to the browser of anyone else). */
   apiKey: string;
-  /** Zernio account ID of the connected Google (Gmail) mailbox that sends the emails. */
+  /** Zernio account ID of the connected mailbox that sends the emails. */
   accountId: string;
   /** Mailbox address, shown in Settings and the send pop-up. */
   mailbox?: string;
+  /** "google" = Gmail / Google Workspace, "imap" = any other email over IMAP/SMTP. Older profiles without it are Gmail. */
+  provider?: "google" | "imap";
   /** The key + account that last sent a test email successfully. "Connected" only when it matches the current values. */
   verifiedKeys?: string;
 }
