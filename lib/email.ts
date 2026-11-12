@@ -37,13 +37,13 @@ export function zernioErrorMessage(e: ApiError) {
     case "invalid_credentials":
       return "Your Zernio API key isn’t valid. Create or copy a key in your Zernio dashboard and verify again in Settings.";
     case "reconnect_required":
-      return "Google disconnected your Gmail from Zernio. Reconnect it in Settings → Email sending, then verify again.";
+      return "Your mailbox provider disconnected it from Zernio. Reconnect it in your Zernio dashboard, then verify again in Settings.";
     case "account_reconnect_required":
-      return "Your mailbox was disconnected from Zernio (for example, its password or app password changed). Reconnect it in Settings → Email sending, then verify again.";
+      return "Your mailbox was disconnected from Zernio (for example, its password or app password changed). Reconnect it in your Zernio dashboard, then verify again in Settings.";
     case "account_scope_missing":
-      return "Your Gmail is connected to Zernio without email access. Reconnect it in Settings → Email sending and allow email.";
+      return "This mailbox is connected to Zernio without email access. Reconnect it in your Zernio dashboard and allow email.";
     case "smtp_auth_failed":
-      return "Your email provider refused to let Zernio send from this mailbox. Turn on SMTP (or create an app password) at your provider, then reconnect it.";
+      return "Your email provider refused to let Zernio send from this mailbox. Turn on SMTP (or create an app password) at your provider, then reconnect it in Zernio.";
     case "payment_required":
       return "Zernio needs a payment method on your workspace before it can send emails. Add one in your Zernio dashboard.";
     case "email_send_cap_reached":
@@ -70,7 +70,7 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return json;
 }
 
-export type MailboxProvider = "google" | "imap";
+export type MailboxProvider = "google" | "microsoft" | "imap";
 export interface Mailbox {
   id: string;
   label: string;
@@ -78,21 +78,18 @@ export interface Mailbox {
   provider: MailboxProvider;
 }
 
-/** The mailboxes connected to a Zernio account (Gmail and IMAP/SMTP), for the picker in Settings. */
+/** Every mailbox connected to a Zernio account that can send (Gmail, Outlook, IMAP/SMTP), for the picker in Settings. */
 export async function listMailboxes(apiKey: string) {
   const { accounts } = await postJson<{ accounts: Mailbox[] }>("/api/email/accounts", { apiKey: apiKey.trim() });
   return accounts;
 }
 
-/** Gets a Zernio-hosted link to connect a new mailbox; Zernio sends the browser back to `redirectUrl` afterwards. */
-export async function mailboxConnectLink(apiKey: string, provider: MailboxProvider, redirectUrl: string, email?: string) {
-  const { authUrl } = await postJson<{ authUrl: string }>("/api/email/connect", { apiKey: apiKey.trim(), provider, redirectUrl, email });
-  return authUrl;
-}
+/** "Gmail", "Outlook" or "IMAP/SMTP", shown next to each mailbox. */
+export const providerLabel = (p?: MailboxProvider) => (p === "microsoft" ? "Outlook" : p === "imap" ? "IMAP/SMTP" : p === "google" ? "Gmail" : "");
 
 /** Daily sending limit text for the connected mailbox. */
 export const sendingLimit = (p?: MailboxProvider) =>
-  p === "imap" ? "Zernio allows 200 emails a day from one mailbox (your provider may allow fewer)." : "Gmail allows 200 emails a day (500 on Google Workspace).";
+  p === "google" ? "Gmail allows 200 emails a day (500 on Google Workspace)." : "Zernio allows about 200 emails a day from one mailbox (your provider may allow fewer).";
 
 export function defaultEmailSubject(inv: Invoice) {
   return `Invoice ${inv.number} from ${inv.business.name}`;

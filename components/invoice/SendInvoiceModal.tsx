@@ -20,7 +20,7 @@ const kb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
 /**
  * Email pop-up: recipient pre-filled from the client, editable subject/body,
- * PDF generated and attached, sent from the user’s own mailbox (Gmail or IMAP/SMTP) through their own Zernio account.
+ * PDF generated and attached, sent from the user’s own mailbox (Gmail, Outlook or IMAP/SMTP) through their own Zernio account.
  */
 export default function SendInvoiceModal({
   invoice,

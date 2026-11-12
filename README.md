@@ -2,7 +2,7 @@
 
 # SharpBill
 
-Invoicing for freelancers: create invoices in any currency from 8 template types, email them to clients (PDF attached) from your own mailbox (Gmail, Google Workspace, or any IMAP/SMTP email) through your own Zernio account, or download print-ready PDFs.
+Invoicing for freelancers: create invoices in any currency from 8 template types, email them to clients (PDF attached) from your own mailbox (Gmail, Outlook, or any IMAP/SMTP email) through your own Zernio account, or download print-ready PDFs.
 
 Built with **Next.js 16 (App Router)**, **TypeScript**, **Tailwind CSS v4**, **Framer Motion** and **Firebase** (Auth + Firestore).
 
@@ -49,17 +49,14 @@ SharpBill is a server-rendered Next.js app, so it uses **Firebase App Hosting** 
 
 ### Email sending with Zernio (per user, done in-app at /settings)
 
-Invoices are emailed from each user's own mailbox through **their own Zernio account**. Two kinds of mailbox work:
-
-- **Gmail / Google Workspace** ([docs](https://docs.zernio.com/platforms/google)), connected with Email access.
-- **Any other email over IMAP/SMTP**, such as Outlook, Yahoo, iCloud, Zoho, Fastmail or a custom domain ([docs](https://docs.zernio.com/platforms/imap)).
+Invoices are emailed from each user's own mailbox through **their own Zernio account**. Any mailbox connected in Zernio that can send email works: **Gmail / Google Workspace** ([docs](https://docs.zernio.com/platforms/google)), **Outlook / Microsoft 365**, or **any other email over IMAP/SMTP** ([docs](https://docs.zernio.com/platforms/imap)).
 
 1. Create an account at zernio.com and add a payment method (Zernio requires one before sending).
-2. Create a Zernio API key and paste it into **Settings → Email sending**.
-3. Click **Connect Gmail** or **Connect other email**. SharpBill asks Zernio for a hosted connect link (`app/api/email/connect` → `GET /v1/connect/google?scopes=email` or `GET /v1/connect/email`, under the user's default Zernio profile). The user signs in on Zernio's page, so mailbox passwords never pass through SharpBill, and Zernio redirects back to `/settings?mailbox_return=…` with the `accountId`. If the mailbox was already connected in Zernio, **Find my mailboxes** lists Gmail (`platform=google`) and IMAP (`platform=imap`) accounts instead.
+2. In Zernio, connect the mailbox to send from (with email access).
+3. Create a Zernio API key and paste it into **Settings → Email sending**. SharpBill loads every connected mailbox (`GET /v1/accounts?platform=google|microsoft|imap`); one is picked automatically, and with several the user chooses.
 4. **Verify & save** sends a test email with a test PDF to the business email; it only shows "Connected" if Zernio accepts it.
 
-The key is stored on the user's own profile (owner-only Firestore rules). The browser posts it to SharpBill's own route handlers (`app/api/email/send`, `app/api/email/accounts`, `app/api/email/connect`), which forward to `https://zernio.com/api/v1` with `Authorization: Bearer <key>` — the key is never sent to any other site.
+The key is stored on the user's own profile (owner-only Firestore rules). The browser posts it to SharpBill's own route handlers (`app/api/email/send`, `app/api/email/accounts`), which forward to `https://zernio.com/api/v1` with `Authorization: Bearer <key>` — the key is never sent to any other site.
 
 **Designs.** Settings → Invoice email design picks one of six designs (Monolith, Blueprint, Cycle, Atelier, Emerald, Counterfoil) from `lib/email-templates.ts`. SharpBill fills in the variables (`renderEmail`: `{{name}}` is escaped text, `{{{name}}}` is pre-escaped HTML) and sends the finished HTML with the invoice PDF as a real attachment. Sending limits: 200 emails a day per mailbox (500 on Google Workspace), 25 MB of attachments per email. Both mailbox types use the same `POST /v1/email/messages` call.
 

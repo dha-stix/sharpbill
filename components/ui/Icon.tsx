@@ -13,6 +13,7 @@ const paths: Record<string, ReactNode> = {
   send: <path d="M22 2 11 13M22 2l-7 20-4-9-9-4z" />,
   mail: (<><path d="M3 6h18v12H3z" /><path d="m3 7 9 6 9-6" /></>),
   search: (<><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></>),
+  refresh: (<><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" /></>),
   arrowRight: <path d="M5 12h14M13 6l6 6-6 6" />,
   arrowLeft: <path d="M19 12H5M11 6l-6 6 6 6" />,
   trash: <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />,

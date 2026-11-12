@@ -9,7 +9,7 @@ import { useToast } from "@/components/ui/Toast";
 import { useAuth } from "@/context/AuthContext";
 import BankFields from "@/components/invoice/BankFields";
 import { bankText } from "@/lib/invoice-utils";
-import { hasZernioKeys, isZernioReady, listMailboxes, mailboxConnectLink, sendingLimit, verifyZernio, zernioFingerprint, type Mailbox, type MailboxProvider } from "@/lib/email";
+import { hasZernioKeys, isZernioReady, listMailboxes, providerLabel, sendingLimit, verifyZernio, zernioFingerprint, type Mailbox } from "@/lib/email";
 import { EMPTY_BANK, EMPTY_BUSINESS, EMPTY_ZERNIO } from "@/lib/constants";
 import { saveBusinessProfile, saveEmailDesign, saveInvoiceSettings, savePaymentSettings, saveZernioSettings } from "@/lib/firebase-actions";
 import { cn } from "@/lib/format";
@@ -18,9 +18,6 @@ import type { BusinessProfile, PaymentSettings, UserProfile, ZernioSettings } fr
 import type { User } from "firebase/auth";
 import BusinessFields from "./BusinessFields";
 import EmailTemplateGallery from "./EmailTemplateGallery";
-
-/** Holds the typed Zernio key for this tab while the user connects a mailbox on Zernio's page. */
-const PENDING_KEY = "sharpbill:zernio-pending-key";
 
 const SECTIONS = [
   ["business", "Business profile"],
@@ -71,89 +68,53 @@ function SettingsForm({ profile, user }: { profile: UserProfile; user: User }) {
   const [pay, setPay] = useState<PaymentSettings>(() => ({ ...profile.payment, bank: { ...EMPTY_BANK, ...profile.payment?.bank } }));
   const [zr, setZr] = useState<ZernioSettings>(() => ({ ...EMPTY_ZERNIO, ...profile.zernio }));
   const [zrError, setZrError] = useState("");
-  const [zrNotice, setZrNotice] = useState("");
   const [accounts, setAccounts] = useState<Mailbox[] | null>(null);
   const [finding, setFinding] = useState(false);
-  const [connecting, setConnecting] = useState<MailboxProvider | null>(null);
   // "Connected" means the saved key + account sent a real test email; filled-in values alone are not enough.
   const connected = isZernioReady(profile.zernio);
   const needsCheck = !connected && hasZernioKeys(profile.zernio);
   const zrDirty = zernioFingerprint(zr) !== zernioFingerprint({ ...EMPTY_ZERNIO, ...profile.zernio });
   const testEmail = biz.email || user.email || "";
 
-  /** Loads the mailboxes (Gmail and IMAP/SMTP) connected to this Zernio key; picks it automatically when there is only one. */
-  async function findAccounts() {
+  /**
+   * Loads every mailbox connected to this Zernio key (Gmail, Outlook, any IMAP/SMTP email).
+   * One mailbox is picked automatically; with several, the user chooses.
+   */
+  async function findAccounts(apiKey = zr.apiKey, quiet = false) {
     setZrError("");
-    setZrNotice("");
-    if (!zr.apiKey.trim()) return setZrError("Enter your Zernio API key first.");
+    if (!apiKey.trim()) return quiet ? undefined : setZrError("Enter your Zernio API key first.");
     setFinding(true);
     try {
-      const all = await listMailboxes(zr.apiKey);
+      const all = await listMailboxes(apiKey);
       const list = all.filter((a) => a.canSend);
       setAccounts(list);
-      if (!all.length) setZrError("No mailbox is connected to this Zernio key yet. Use “Connect Gmail” or “Connect other email” below.");
-      else if (!list.length) setZrError("Your Google account is connected to Zernio without email access. Click “Connect Gmail” to reconnect it and allow email.");
-      else if (list.length === 1) setZr((z) => ({ ...z, accountId: list[0].id, mailbox: list[0].label, provider: list[0].provider }));
+      if (!all.length) setZrError("No mailbox is connected to this Zernio key yet. Connect your email (Gmail, Outlook or any other) in your Zernio dashboard, then click “Refresh”.");
+      else if (!list.length) setZrError("Your mailbox is connected to Zernio without email access. Reconnect it in Zernio and allow email, then click “Refresh”.");
+      else
+        setZr((z) => {
+          const keep = list.find((a) => a.id === z.accountId);
+          const pick = keep ?? (list.length === 1 ? list[0] : undefined);
+          return pick ? { ...z, apiKey, accountId: pick.id, mailbox: pick.label, provider: pick.provider } : { ...z, apiKey, accountId: "", mailbox: "", provider: undefined };
+        });
     } catch (e) {
-      setZrError((e as Error).message);
+      setAccounts(null);
+      if (!quiet || zr.apiKey.trim()) setZrError((e as Error).message);
     } finally {
       setFinding(false);
     }
   }
 
-  /** Sends the user to Zernio's hosted page to connect Gmail or any IMAP/SMTP mailbox; Zernio returns them here. */
-  async function connectMailbox(provider: MailboxProvider) {
-    setZrError("");
-    setZrNotice("");
-    if (!zr.apiKey.trim()) return setZrError("Enter your Zernio API key first.");
-    setConnecting(provider);
-    try {
-      const back = `${window.location.origin}/settings?mailbox_return=${provider}`;
-      const url = await mailboxConnectLink(zr.apiKey, provider, back, biz.email || user.email || undefined);
-      // The key isn't saved until it's verified, so keep it for this tab while the user is on Zernio's page.
-      try {
-        sessionStorage.setItem(PENDING_KEY, zr.apiKey.trim());
-      } catch {}
-      window.location.assign(url);
-    } catch (e) {
-      setZrError((e as Error).message);
-      setConnecting(null);
-    }
-  }
-
-  // Back from Zernio's connect page: fill in the new mailbox, then the user verifies it.
+  // Load the mailboxes for a saved key straight away, and again shortly after a new key is pasted or typed.
+  const keyValue = zr.apiKey.trim();
   useEffect(() => {
-    const q = new URLSearchParams(window.location.search);
-    const provider = q.get("mailbox_return");
-    if (provider !== "google" && provider !== "imap") return;
-    let apiKey = "";
-    try {
-      apiKey = sessionStorage.getItem(PENDING_KEY) ?? "";
-      sessionStorage.removeItem(PENDING_KEY);
-    } catch {}
-    const accountId = q.get("accountId");
-    const mailbox = q.get("email") || q.get("username") || "";
-    const failed = q.get("error") || (q.get("status") === "error" ? "error" : "");
-    window.history.replaceState(null, "", "/settings#email");
-    /* eslint-disable react-hooks/set-state-in-effect -- one-off read of the redirect's query string */
-    if (apiKey) setZr((z) => ({ ...z, apiKey }));
-    if (accountId && !failed) {
-      setZr((z) => ({ ...z, ...(apiKey ? { apiKey } : {}), accountId, mailbox, provider }));
-      setZrNotice(`${mailbox || "Your mailbox"} is connected to Zernio. Click “Verify & save” to send a test email and finish.`);
-    } else {
-      setZrError(
-        failed === "oauth_denied" || failed === "no_access_granted"
-          ? "Google access wasn’t granted. Try “Connect Gmail” again and allow email access."
-          : "The mailbox wasn’t connected. Try again — for Gmail, Yahoo, iCloud and similar providers you may need an app password.",
-      );
-    }
-    /* eslint-enable react-hooks/set-state-in-effect */
-    document.getElementById("email")?.scrollIntoView();
-  }, []);
+    if (!keyValue) return;
+    const t = setTimeout(() => findAccounts(keyValue, true), 600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only when the key changes
+  }, [keyValue]);
 
   function verifyAndSave() {
     setZrError("");
-    setZrNotice("");
     const keys: ZernioSettings = { ...zr, apiKey: zr.apiKey.trim(), accountId: zr.accountId.trim() };
     if (!hasZernioKeys(keys)) return setZrError("Enter your Zernio API key and choose the mailbox to send from.");
     if (!testEmail) return setZrError("Add your business email above first — the test email is sent there.");
@@ -272,8 +233,8 @@ function SettingsForm({ profile, user }: { profile: UserProfile; user: User }) {
               <ol className="mb-5 grid gap-2 rounded-2xl bg-paper p-4 text-sm text-slate sm:grid-cols-2">
                 {[
                   "Create an account at zernio.com and add a payment method (Zernio requires one before sending emails).",
-                  "Create a Zernio API key and paste it below.",
-                  "Click “Connect Gmail”, or “Connect other email” for any other provider (IMAP/SMTP). Already connected one in Zernio? Click “Find my mailboxes”.",
+                  "In Zernio, connect the email you send from: Gmail, Outlook or any other provider (IMAP/SMTP).",
+                  "Create a Zernio API key and paste it below. Your connected mailboxes load automatically — pick one if you have several.",
                   "Click “Verify & save” — a test email confirms it works.",
                 ].map((s, i) => (
                   <li key={i} className="flex gap-2.5"><span className="grid size-6 shrink-0 place-items-center rounded-full bg-ink font-mono text-xs text-lime">{i + 1}</span>{s}</li>
@@ -292,41 +253,32 @@ function SettingsForm({ profile, user }: { profile: UserProfile; user: User }) {
                 <div className="label">
                   Sending mailbox
                   <div className="flex gap-2">
-                    {accounts && accounts.length > 1 ? (
+                    {accounts && accounts.length > 0 ? (
                       <select
                         className="field min-w-0 flex-1"
                         value={zr.accountId}
                         onChange={(e) => {
                           const a = accounts.find((x) => x.id === e.target.value);
-                          setZr({ ...zr, accountId: e.target.value, mailbox: a?.label, provider: a?.provider });
+                          setZr({ ...zr, accountId: e.target.value, mailbox: a?.label ?? "", provider: a?.provider });
                         }}
                       >
-                        <option value="">Choose a mailbox…</option>
-                        {accounts.map((a) => <option key={a.id} value={a.id}>{a.label} · {a.provider === "imap" ? "IMAP/SMTP" : "Gmail"}</option>)}
+                        {accounts.length > 1 && <option value="">Choose a mailbox…</option>}
+                        {accounts.map((a) => <option key={a.id} value={a.id}>{a.label}{providerLabel(a.provider) ? ` · ${providerLabel(a.provider)}` : ""}</option>)}
                       </select>
                     ) : (
-                      <input className="field font-mono" value={zr.accountId} onChange={(e) => setZr({ ...zr, accountId: e.target.value, mailbox: "", provider: undefined })} placeholder="Zernio account ID" />
+                      <input
+                        className="field min-w-0 flex-1"
+                        readOnly
+                        value={finding ? "Loading your mailboxes…" : zr.mailbox || (zr.apiKey.trim() ? "No mailbox found" : "Enter your API key to load your mailboxes")}
+                      />
                     )}
-                    <button type="button" className="btn btn-outline shrink-0" disabled={finding} onClick={findAccounts}>
-                      {finding ? <Spinner /> : <Icon name="search" size={16} />} Find my mailboxes
+                    <button type="button" className="btn btn-outline shrink-0" disabled={finding || !zr.apiKey.trim()} onClick={() => findAccounts()}>
+                      {finding ? <Spinner /> : <Icon name="refresh" size={16} />} Refresh
                     </button>
                   </div>
-                  {zr.mailbox && zr.mailbox !== zr.accountId && <span className="text-xs font-normal text-muted">Sends from {zr.mailbox}{zr.provider === "imap" ? " (IMAP/SMTP)" : zr.provider === "google" ? " (Gmail)" : ""}</span>}
+                  {accounts && accounts.length > 1 && <span className="text-xs font-normal text-muted">{accounts.length} mailboxes are connected to your Zernio account — choose the one invoices are sent from.</span>}
                 </div>
               </div>
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                <span className="text-sm text-slate">Connect a new mailbox:</span>
-                <button type="button" className="btn btn-outline" disabled={!!connecting} onClick={() => connectMailbox("google")}>
-                  {connecting === "google" ? <Spinner /> : <GoogleIcon size={16} />} Connect Gmail
-                </button>
-                <button type="button" className="btn btn-outline" disabled={!!connecting} onClick={() => connectMailbox("imap")}>
-                  {connecting === "imap" ? <Spinner /> : <Icon name="mail" size={16} />} Connect other email
-                </button>
-              </div>
-              <p className="mt-2 text-xs text-muted">“Other email” works with Outlook, Yahoo, iCloud, Zoho, Fastmail or your own domain over IMAP/SMTP. You sign in on Zernio’s page; some providers need an app password.</p>
-              {zrNotice && !zrError && (
-                <p role="status" className="mt-4 rounded-xl border border-[#BFE3CB] bg-[#E2F3E8] px-4 py-3 text-sm text-[#1F6B42]">{zrNotice}</p>
-              )}
               {zrError && (
                 <p role="alert" className="mt-4 rounded-xl border border-[#F0C9C5] bg-[#FBE6E4] px-4 py-3 text-sm text-danger">{zrError}</p>
               )}
